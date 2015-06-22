@@ -221,24 +221,18 @@ extension Stream {
     }
 }
 
-func tcpServer() throws {
+func TCPServer(handleRequest: (Stream, NSData) -> ()) throws {
     let server = TCP(freeWhenDone: true)
 
     let addr = Address(host: "0.0.0.0", port: 8888)
     server.bind(addr)
-    var count = 0
     let on_new_connection: ListenBlock = { server, status in
         if status < 0 { printErr(Int(status)) }
         let client = TCP(freeWhenDone: true)
         do {
             try server.accept(client.stream)
             try client.stream.read { stream, data in
-                count++
-                guard let str: NSString = NSString(data: data, encoding: NSUTF8StringEncoding) else { return }
-                if let data = str.dataUsingEncoding(NSUTF8StringEncoding) {
-                    stream.writeData(data)
-                }
-                print("Read: \(str)")
+                handleRequest(stream, data)
                 client.close()
             }
         } catch {
@@ -249,6 +243,15 @@ func tcpServer() throws {
 
     try server.stream.listen(numConnections, theCallback: on_new_connection)
     uv_run(loop, UV_RUN_DEFAULT)
+}
+
+func tcpServer() throws {
+    try TCPServer() { stream, data in
+        guard let str: NSString = NSString(data: data, encoding: NSUTF8StringEncoding) else { return }
+        if let data = str.dataUsingEncoding(NSUTF8StringEncoding) {
+            stream.writeData(data)
+        }
+    }
 }
 
 do {
