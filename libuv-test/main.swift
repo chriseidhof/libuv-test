@@ -95,11 +95,11 @@ extension Stream {
         get {
             let data = stream.memory.data
             if data == nil {
-                self.context = StreamContext()
-                return self.context
+                let result = StreamContext()
+                self.context = result
+                return result
             }
-            let u: Unmanaged<StreamContext> = Unmanaged.fromOpaque(COpaquePointer(data))
-            return u.takeUnretainedValue()
+            return Unmanaged<StreamContext>.fromOpaque(COpaquePointer(data)).takeUnretainedValue()
         }
         set {
             stream.memory.data = UnsafeMutablePointer(Unmanaged.passRetained(newValue).toOpaque())
@@ -111,11 +111,14 @@ extension Stream {
         context.readBlock = callback
         let myCallback: uv_read_cb = { serverStream, bytesRead, buf in
             let stream = Stream(serverStream)
-            stream.context.readBlock?(stream: stream, data: NSData())
             if (bytesRead < 0) {
                 stream.context.readBlock = nil
                 stream.close()
+                return
             }
+            let data = NSData(bytes: buf.memory.base, length: bytesRead)
+            stream.context.readBlock?(stream: stream, data: data)
+
         }
         uv_read_start(stream, alloc_buffer, myCallback)
     }
@@ -210,9 +213,10 @@ func tcpServer() throws {
         let client = TCP()
         do {
             try server.accept(client.stream)
-            try client.stream.read { data in
+            try client.stream.read { stream, data in
                 count++
-                print("Read!!! \(count)")
+                let str = NSString(data: data, encoding: NSUTF8StringEncoding)
+                print("Read!!! \(str, count)")
             }
         } catch {
             print("Caught \(error)")
