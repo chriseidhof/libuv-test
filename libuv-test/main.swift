@@ -61,7 +61,6 @@ let alloc_buffer: uv_alloc_cb = { (handle: UnsafeMutablePointer<uv_handle_t>, su
 }
 
 typealias Loop = UnsafeMutablePointer<uv_loop_t>
-typealias Address = UnsafeMutablePointer<sockaddr_in>
 
 class TCP {
     let server = UnsafeMutablePointer<uv_tcp_t>.alloc(1)
@@ -71,7 +70,7 @@ class TCP {
     }
     
     func bind(address: Address) {
-        uv_tcp_bind(server, UnsafePointer(address), 0)
+        uv_tcp_bind(server, address.address, 0)
     }
     
     deinit {
@@ -89,14 +88,23 @@ extension TCP: Stream {
     var stream: StreamType { return UnsafeMutablePointer(server) }
 }
 
+class Address {
+    var addr = UnsafeMutablePointer<sockaddr_in>.alloc(1)
+    
+    var address: UnsafePointer<sockaddr> {
+        return UnsafePointer(addr)
+    }
+    
+    init(host: String, port: Int) {
+        uv_ip4_addr(host, Int32(port), addr)
+    }
+}
+
 
 func tcpServer() {
     let server = TCP()
 
-    let addr = UnsafeMutablePointer<sockaddr_in>(malloc(sizeof(sockaddr_in)))
-    defer { free(addr) }
-
-    uv_ip4_addr("0.0.0.0", 8888, addr)
+    let addr = Address(host: "0.0.0.0", port: 8888)
     server.bind(addr)
     let on_new_connection: uv_connection_cb =  { server, status in
         if status < 0 {
