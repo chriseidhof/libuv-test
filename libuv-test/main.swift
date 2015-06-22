@@ -225,7 +225,7 @@ func tcpServer() throws {
     var count = 0
     let on_new_connection: ListenBlock = { server, status in
         if status < 0 { printErr(Int(status)) }
-        let client = TCP()
+        let client = TCP(freeWhenDone: true)
         do {
             try server.accept(client.stream)
             try client.stream.read { stream, data in
@@ -236,6 +236,7 @@ func tcpServer() throws {
                     stream.write(ref)
                 }
                 print("Read: \(str)")
+                client.close()
             }
         } catch {
             print("Caught \(error)")
