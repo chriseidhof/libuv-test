@@ -84,31 +84,28 @@ private let alloc_buffer: uv_alloc_cb = { (handle: UnsafeMutablePointer<uv_handl
 typealias ReadBlock = (stream: Stream, data: NSData) -> ()
 typealias ListenBlock = (stream: Stream, Int) -> ()
 
-@objc class Callback {
+@objc class StreamContext {
     var readBlock: ReadBlock?
     var listenBlock: ListenBlock?
 }
 
 extension Stream {
 
-    var context: Callback {
+    var context: StreamContext {
         get {
             let data = stream.memory.data
             if data == nil {
-                self.context = Callback()
+                self.context = StreamContext()
                 return self.context
             }
-            let u: Unmanaged<Callback> = Unmanaged.fromOpaque(COpaquePointer(data))
+            let u: Unmanaged<StreamContext> = Unmanaged.fromOpaque(COpaquePointer(data))
             return u.takeUnretainedValue()
         }
         set {
-            var s = stream.memory
-            let u = Unmanaged.passRetained(newValue)
-            s.data = UnsafeMutablePointer(u.toOpaque())
-            stream.memory = s
-            // TODO this never gets released.
+            stream.memory.data = UnsafeMutablePointer(Unmanaged.passRetained(newValue).toOpaque())
         }
     }
+
 
     func read(callback: ReadBlock) throws {
         context.readBlock = callback
