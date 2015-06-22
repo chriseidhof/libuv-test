@@ -9,33 +9,6 @@
 import Foundation
 import libuv
 
-func helloWorld() {
-    let loop: UnsafeMutablePointer<uv_loop_t> = UnsafeMutablePointer(malloc(sizeof(uv_loop_t)))
-    uv_loop_init(loop)
-    print("Now quitting")
-    uv_run(loop, UV_RUN_DEFAULT)
-    uv_loop_close(loop)
-    free(loop)
-}
-
-private var counter: Int64 = 0 // Needs to be at the top-level
-func idle() {
-    let idler: UnsafeMutablePointer<uv_idle_t> = UnsafeMutablePointer(malloc(sizeof(uv_idle_t)))
-    uv_idle_init(uv_default_loop(), idler)
-    uv_idle_start(idler) { x in
-        counter++
-        if counter >= 10000000 {
-            uv_idle_stop(x)
-        }
-    }
-    print("Idling")
-    uv_run(uv_default_loop(), UV_RUN_DEFAULT)
-    uv_loop_close(uv_default_loop())
-    free(idler)
-}
-
-//idle()
-
 let numConnections = 10
 
 let loop = uv_default_loop()
@@ -46,47 +19,41 @@ func printErr(errorCode: Int) {
     print("Error \(errorCode): \(str)")
 }
 
-let echo_read: uv_read_cb = { server, nread, buf in
-    guard nread >= 0 else {
-        printErr(nread); return
-}
-    let req = UnsafeMutablePointer<uv_write_t>.alloc(sizeof(uv_write_t))
-    print("bytes read: \(nread)")
-    uv_write(req, server, buf, 1, nil)
-    free(buf.memory.base)
-}
 let alloc_buffer: uv_alloc_cb = { (handle: UnsafeMutablePointer<uv_handle_t>, suggestedSize: Int, buffer: UnsafeMutablePointer<uv_buf_t>) in
-    print("suggested size \(suggestedSize)")
     buffer.memory = uv_buf_init(UnsafeMutablePointer.alloc(suggestedSize), UInt32(suggestedSize))
 }
 
-typealias Loop = UnsafeMutablePointer<uv_loop_t>
+typealias LoopRef = UnsafeMutablePointer<uv_loop_t>
+typealias HandleRef = UnsafeMutablePointer<uv_handle_t>
+typealias StreamRef = UnsafeMutablePointer<uv_stream_t>
+typealias WriteRef = UnsafeMutablePointer<uv_write_t>
+
 
 class TCP {
     let server = UnsafeMutablePointer<uv_tcp_t>.alloc(1)
+
+    lazy var stream: Stream = Stream(UnsafeMutablePointer(self.server))
+    var freeWhenDone: Bool
+
     
-    init(loop: Loop = uv_default_loop()) {
+    init(loop: LoopRef = uv_default_loop(), freeWhenDone: Bool = false) {
         uv_tcp_init(loop, server)
+        self.freeWhenDone = freeWhenDone
     }
     
     func bind(address: Address) {
         uv_tcp_bind(server, address.address, 0)
     }
     
+    func close() {
+        stream.close()
+    }
+    
     deinit {
-        free(server)
+        if freeWhenDone { free(server) }
     }
 }
 
-typealias StreamType = UnsafeMutablePointer<uv_stream_t>
-
-protocol Stream {
-    var stream: StreamType { get }
-}
-
-extension TCP: Stream {
-    var stream: StreamType { return UnsafeMutablePointer(server) }
-}
 
 class Address {
     var addr = UnsafeMutablePointer<sockaddr_in>.alloc(1)
@@ -98,33 +65,112 @@ class Address {
     init(host: String, port: Int) {
         uv_ip4_addr(host, Int32(port), addr)
     }
+    
+    deinit {
+        free(addr)
+    }
+}
+
+enum UVError: ErrorType {
+    case Error(code: Int32)
+}
+
+extension UVError : CustomStringConvertible {
+    var description: String {
+        switch self {
+        case .Error(let code):
+            return String(CString: uv_err_name(code), encoding: NSUTF8StringEncoding) ?? "Unknown error"
+        }
+    }
 }
 
 
-func tcpServer() {
-    let server = TCP()
+class Stream {
+    var stream: StreamRef
+    
+    init(_ stream: StreamRef) {
+        self.stream = stream
+    }
+
+    func accept(client: Stream) throws -> () {
+        let result = uv_accept(stream, client.stream)
+        if result < 0 { throw UVError.Error(code: result) }
+    }
+    
+    func readStart(callback: uv_read_cb) throws {
+        let result = uv_read_start(stream, alloc_buffer, callback)
+        if result < 0 { throw UVError.Error(code: result) }
+    }
+    
+    func listen(numConnections: Int, callback: uv_connection_cb) throws -> () {
+        let result = uv_listen(stream, Int32(numConnections), callback)
+        if result < 0 {
+            throw UVError.Error(code: result)
+        }
+    }
+    
+    func close() {
+        uv_close(UnsafeMutablePointer(stream), nil)
+    }
+}
+
+class Write {
+    var writeRef: WriteRef = WriteRef.alloc(1)
+    
+    func writeAndFree(stream: Stream, buffer: UnsafePointer<uv_buf_t>) {
+        assert(writeRef != nil)
+        uv_write(writeRef, stream.stream, buffer, 1, { x, _ in
+            free(x)
+        })
+    }
+}
+
+func processData(data: NSData) -> NSData {
+    return data
+}
+
+let echo_read: uv_read_cb = { serverStream, nread, buf in
+    let server = Stream(serverStream)
+    
+    if Int32(nread) == UV_EOF.rawValue {
+        server.close()
+        return
+    }
+    
+    guard nread > 0 else {
+        server.close()
+        printErr(nread); return
+    }
+    
+    let req = Write()
+    req.writeAndFree(server, buffer: buf)
+    
+    free(buf.memory.base)
+}
+
+func tcpServer() throws {
+    let server = TCP(freeWhenDone: true)
 
     let addr = Address(host: "0.0.0.0", port: 8888)
     server.bind(addr)
-    let on_new_connection: uv_connection_cb =  { server, status in
-        if status < 0 {
-            let strError = uv_strerror(status)
-            print("New connection error: \(strError)")
-        }
-        let client = UnsafeMutablePointer<uv_tcp_t>(malloc(sizeof(uv_tcp_t)))
-        uv_tcp_init(loop, client)
-        if uv_accept(server, UnsafeMutablePointer(client)) == 0 {
-            uv_read_start(UnsafeMutablePointer(client), alloc_buffer, echo_read)
-        } else {
-            uv_close(UnsafeMutablePointer(client), nil)
+    let on_new_connection: uv_connection_cb =  { serverStream, status in
+        if status < 0 { printErr(Int(status)) }
+        let server = Stream(serverStream)
+        let client = TCP()
+        do {
+            try server.accept(client.stream)
+            try client.stream.readStart(echo_read)
+        } catch {
+            client.close()
         }
     }
 
-    let r = uv_listen(server.stream, Int32(numConnections), on_new_connection)
-    guard r == 0 else {
-        print("error"); return
-    }
+    try server.stream.listen(numConnections, callback: on_new_connection)
     uv_run(loop, UV_RUN_DEFAULT)
 }
 
-tcpServer()
+do {
+    try tcpServer()
+} catch {
+    print(error)
+}
