@@ -110,7 +110,8 @@ extension Stream {
 
     func read(callback: ReadBlock) throws {
         context.readBlock = callback
-        let myCallback: uv_read_cb = { serverStream, bytesRead, buf in
+        uv_read_start(stream, alloc_buffer) {
+            serverStream, bytesRead, buf in
             let stream = Stream(serverStream)
             if (bytesRead < 0) {
                 stream.context.readBlock = nil
@@ -121,7 +122,7 @@ extension Stream {
             stream.context.readBlock?(stream: stream, data: data)
 
         }
-        uv_read_start(stream, alloc_buffer, myCallback)
+
     }
     
     func listen(numConnections: Int, callback: uv_connection_cb) throws -> () {
@@ -133,13 +134,10 @@ extension Stream {
     
     func listen(numConnections: Int, theCallback: (Stream, Int) -> ()) throws -> () {
         context.listenBlock = theCallback
-        let my_callback: uv_connection_cb = { serverStream, status in
+        try listen(numConnections, callback: { serverStream, status in
             let stream = Stream(serverStream)
-            let z = stream.context.listenBlock
-            z?(stream: stream, Int(status))
-            return ()
-        }
-        try listen(numConnections, callback: my_callback)
+            stream.context.listenBlock?(stream: stream, Int(status))
+        })
     }
 
     func write(buffer: BufferRef) {
@@ -217,6 +215,12 @@ let echo_read: uv_read_cb = { serverStream, bytesRead, buf in
     free(buf.memory.base)
 }
 
+extension Stream {
+    func writeData(data: NSData) {
+        data.bufferRef(write)
+    }
+}
+
 func tcpServer() throws {
     let server = TCP(freeWhenDone: true)
 
@@ -231,9 +235,8 @@ func tcpServer() throws {
             try client.stream.read { stream, data in
                 count++
                 guard let str: NSString = NSString(data: data, encoding: NSUTF8StringEncoding) else { return }
-                let data = str.dataUsingEncoding(NSUTF8StringEncoding)
-                data?.bufferRef { ref in
-                    stream.write(ref)
+                if let data = str.dataUsingEncoding(NSUTF8StringEncoding) {
+                    stream.writeData(data)
                 }
                 print("Read: \(str)")
                 client.close()
