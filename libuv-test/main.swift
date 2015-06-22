@@ -23,6 +23,7 @@ typealias LoopRef = UnsafeMutablePointer<uv_loop_t>
 typealias HandleRef = UnsafeMutablePointer<uv_handle_t>
 typealias StreamRef = UnsafeMutablePointer<uv_stream_t>
 typealias WriteRef = UnsafeMutablePointer<uv_write_t>
+typealias BufferRef = UnsafePointer<uv_buf_t>
 
 enum UVError: ErrorType {
     case Error(code: Int32)
@@ -141,6 +142,11 @@ extension Stream {
         try listen(numConnections, callback: my_callback)
     }
 
+    func write(buffer: BufferRef) {
+        let req = Write()
+        req.writeAndFree(self, buffer: buffer)
+    }
+
     func close() {
         uv_close(UnsafeMutablePointer(stream), nil)
     }
@@ -149,7 +155,7 @@ extension Stream {
 class Write {
     var writeRef: WriteRef = WriteRef.alloc(1)
     
-    func writeAndFree(stream: Stream, buffer: UnsafePointer<uv_buf_t>) {
+    func writeAndFree(stream: Stream, buffer: BufferRef) {
         assert(writeRef != nil)
         uv_write(writeRef, stream.stream, buffer, 1, { x, _ in
             free(x)
@@ -183,6 +189,16 @@ class TCP {
     }
 }
 
+extension NSData {
+    func bufferRef(callback: BufferRef -> ()) -> () {
+        let count = length / sizeof(Int8)
+        var buffer: [Int8] = [Int8](count: count, repeatedValue: 0)
+        getBytes(&buffer, length: length)
+        var z = uv_buf_init(&buffer, UInt32(count))
+        withUnsafePointer(&z, callback)
+    }
+}
+
 let echo_read: uv_read_cb = { serverStream, bytesRead, buf in
     let server = Stream(serverStream)
     
@@ -195,9 +211,8 @@ let echo_read: uv_read_cb = { serverStream, bytesRead, buf in
         server.close()
         printErr(bytesRead); return
     }
-    
-    let req = Write()
-    req.writeAndFree(server, buffer: buf)
+
+    server.write(buf)
     
     free(buf.memory.base)
 }
@@ -215,8 +230,12 @@ func tcpServer() throws {
             try server.accept(client.stream)
             try client.stream.read { stream, data in
                 count++
-                let str = NSString(data: data, encoding: NSUTF8StringEncoding)
-                print("Read!!! \(str, count)")
+                guard let str: NSString = NSString(data: data, encoding: NSUTF8StringEncoding) else { return }
+                let data = str.dataUsingEncoding(NSUTF8StringEncoding)
+                data?.bufferRef { ref in
+                    stream.write(ref)
+                }
+                print("Read: \(str)")
             }
         } catch {
             print("Caught \(error)")
