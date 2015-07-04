@@ -11,8 +11,6 @@ import libuv
 
 let numConnections = 10
 
-let loop = uv_default_loop()
-
 func printErr(errorCode: Int) {
     let strError = uv_strerror(Int32(errorCode))
     let str = String(CString: strError, encoding: NSUTF8StringEncoding)
@@ -53,11 +51,12 @@ class Address {
     }
     
     deinit {
-        free(addr)
+        addr.dealloc(1)
     }
 }
 
 private let alloc_buffer: uv_alloc_cb = { (handle: UnsafeMutablePointer<uv_handle_t>, suggestedSize: Int, buffer: UnsafeMutablePointer<uv_buf_t>) in
+    // todo is this right? suggestedSize?
     buffer.memory = uv_buf_init(UnsafeMutablePointer.alloc(suggestedSize), UInt32(suggestedSize))
 }
 
@@ -166,12 +165,8 @@ class TCP {
 
     lazy var stream: Stream = Stream(UnsafeMutablePointer(self.server))
 
-    var freeWhenDone: Bool
-
-
-    init(loop: LoopRef = uv_default_loop(), freeWhenDone: Bool = false) {
+    init(loop: LoopRef = uv_default_loop()) {
         uv_tcp_init(loop, server)
-        self.freeWhenDone = freeWhenDone
     }
 
     func bind(address: Address) {
@@ -183,12 +178,12 @@ class TCP {
     }
 
     deinit {
-        if freeWhenDone { free(server) }
+        free(server)
     }
 }
 
 extension NSData {
-    func bufferRef(callback: BufferRef -> ()) -> () {
+    func withBufferRef(callback: BufferRef -> ()) -> () {
         let count = length / sizeof(Int8)
         var buffer: [Int8] = [Int8](count: count, repeatedValue: 0)
         getBytes(&buffer, length: length)
@@ -217,18 +212,21 @@ let echo_read: uv_read_cb = { serverStream, bytesRead, buf in
 
 extension Stream {
     func writeData(data: NSData) {
-        data.bufferRef(write)
+        data.withBufferRef(write)
     }
 }
 
 func TCPServer(handleRequest: (Stream, NSData) -> ()) throws {
-    let server = TCP(freeWhenDone: true)
+    let loop = uv_default_loop()
+    defer { uv_loop_close(loop) }
+
+    let server = TCP()
 
     let addr = Address(host: "0.0.0.0", port: 8888)
     server.bind(addr)
     let on_new_connection: ListenBlock = { server, status in
         if status < 0 { printErr(Int(status)) }
-        let client = TCP(freeWhenDone: true)
+        let client = TCP()
         do {
             try server.accept(client.stream)
             try client.stream.read { stream, data in
