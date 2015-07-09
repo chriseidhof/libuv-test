@@ -7,3 +7,11 @@
 //
 
 import Foundation
+
+import libuv
+
+func main() {
+    let loop = Loop()
+    print("Now quitting")
+    loop.run(UV_RUN_DEFAULT)
+}
