@@ -88,7 +88,7 @@ class Stream {
         if result < 0 { throw UVError.Error(code: result) }
     }
     
-    func listen(numConnections: Int, callback: uv_connection_cb) throws -> () {
+    func listen(backlog numConnections: Int, callback: uv_connection_cb) throws -> () {
         let result = uv_listen(stream, Int32(numConnections), callback)
         if result < 0 { throw UVError.Error(code: result) }
     }
@@ -106,8 +106,9 @@ final class Box<A> {
     init(_ value: A) { unbox = value }
 }
 
-func retainedVoidPointer<A>(x: A) -> UnsafeMutablePointer<Void> {
-    let unmanaged = Unmanaged.passRetained(Box(x))
+func retainedVoidPointer<A>(x: A?) -> UnsafeMutablePointer<Void> {
+    guard let value = x else { return UnsafeMutablePointer() }
+    let unmanaged = Unmanaged.passRetained(Box(value))
     return UnsafeMutablePointer(unmanaged.toOpaque())
 }
 
@@ -119,11 +120,10 @@ func fromVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
 func releaseVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
     guard x != nil else { return nil }
     return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeRetainedValue().unbox
-    
 }
 
-typealias ReadBlock = (stream: Stream, data: ReadResult) -> ()
-typealias ListenBlock = (serverStream: Stream, Int) -> ()
+typealias ReadBlock = ReadResult -> ()
+typealias ListenBlock = (status: Int) -> ()
 
 class StreamContext {
     var readBlock: ReadBlock?
@@ -161,7 +161,6 @@ extension Stream {
         }
     }
 
-
     func read(callback: ReadBlock) throws {
         context.readBlock = callback
         uv_read_start(stream, alloc_buffer) { serverStream, bytesRead, buf in
@@ -175,15 +174,15 @@ extension Stream {
             } else {
                 data = .Chunk(NSData(bytes: buf.memory.base, length: bytesRead))
             }
-            stream.context.readBlock?(stream: stream, data: data)
+            stream.context.readBlock?(data)
         }
     }
     
-    func listen(numConnections: Int, theCallback: (Stream, Int) -> ()) throws -> () {
+    func listen(numConnections: Int, theCallback: ListenBlock) throws -> () {
         context.listenBlock = theCallback
-        try listen(numConnections, callback: { serverStream, status in
+        try listen(backlog: numConnections, callback: { serverStream, status in
             let stream = Stream(serverStream)
-            stream.context.listenBlock?(serverStream: stream, Int(status))
+            stream.context.listenBlock?(status: Int(status))
         })
     }
 
@@ -245,46 +244,64 @@ extension Stream {
     }
 }
 
-func TCPServer(handleRequest: (Stream, NSData, () -> ()) -> ()) throws {
-    let server = TCP()
+extension Stream {
+    func bufferedRead(callback: NSData -> ()) throws -> () {
+        let mutableData = NSMutableData()
+        try read { [unowned self] result in
+            if case let .Chunk(data) = result {
+                mutableData.appendData(data)
+            } else if case .EOF = result {
+                callback(mutableData)
+            } else {
+                self.closeAndFree()
+            }
+        }
+    }
+}
 
+extension Stream: SinkType {
+    typealias Element = NSData
+    
+    func put(data: NSData) {
+        writeData(data) {
+            self.closeAndFree()
+        }
+    }
+}
+
+typealias RequestHandler = (data: NSData, sink: SinkOf<NSData>) -> ()
+
+func runTCPServer(handleRequest: RequestHandler) throws {
+    let server = TCP()
     let addr = Address(host: "0.0.0.0", port: 8888)
     server.bind(addr)
-    let on_new_connection: ListenBlock = { serverStream, status in
-        if status < 0 { printErr(Int(status)) }
+    try server.listen(numConnections) { status in
+        guard status >= 0 else { return }
         let client = TCP()
         do {
-            try serverStream.accept(client)
-            let mutableData = NSMutableData()
-            try client.read { stream, result in
-                if case let .Chunk(data) = result {
-                    mutableData.appendData(data)
-                } else if case .EOF = result {
-                    handleRequest(stream, mutableData) {
-                        client.closeAndFree()
-                    }
-                } else {
-                    client.closeAndFree()
-                }
+            try server.accept(client)
+            try client.bufferedRead { data in
+                handleRequest(data: data, sink: SinkOf(client))
             }
         } catch {
-            print("Caught \(error)")
             client.closeAndFree()
         }
     }
-
-    try server.listen(numConnections, theCallback: on_new_connection)
     Loop.defaultLoop.run(UV_RUN_DEFAULT)
 }
 
-func tcpServer() throws {
-    try TCPServer() { stream, data, completion in
-        guard let str: NSString = NSString(data: data, encoding: NSUTF8StringEncoding) else { return }
-        if let data = str.stringByAppendingString("World").dataUsingEncoding(NSUTF8StringEncoding) {
-            stream.writeData(data) {
-                print("write completion")
-                completion()
-            }
+extension String {
+    func reverse() -> String {
+        return self
+    }
+}
+
+func run() throws {
+    try runTCPServer() { data, sink in
+        if let string = NSString(data: data, encoding: NSUTF8StringEncoding),
+           let data = string.dataUsingEncoding(NSUTF8StringEncoding) {
+            print(string)
+            sink.put(data)
         }
     }
 }
@@ -292,9 +309,7 @@ func tcpServer() throws {
 let result: Int = [1,2,3,4].reduce(0, combine: +)
 
 do {
-//    main()
-//    print("Done")
-    try tcpServer()
+    try run()
 } catch {
     print(error)
 }
