@@ -73,7 +73,6 @@ class Address {
     
     deinit {
         addr.dealloc(1)
-        print("Dealloc addr")
     }
 }
 
@@ -95,16 +94,38 @@ class Stream {
     }
     
     func closeAndFree() {
+        _context = nil
         uv_close(UnsafeMutablePointer(stream)) { handle in
             free(handle)
         }
     }
 }
 
-typealias ReadBlock = (stream: Stream, data: NSData?) -> ()
+final class Box<A> {
+    let unbox: A
+    init(_ value: A) { unbox = value }
+}
+
+func retainedVoidPointer<A>(x: A) -> UnsafeMutablePointer<Void> {
+    let unmanaged = Unmanaged.passRetained(Box(x))
+    return UnsafeMutablePointer(unmanaged.toOpaque())
+}
+
+func fromVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
+    guard x != nil else { return nil }
+    return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeUnretainedValue().unbox
+}
+
+func releaseVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
+    guard x != nil else { return nil }
+    return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeRetainedValue().unbox
+    
+}
+
+typealias ReadBlock = (stream: Stream, data: ReadResult) -> ()
 typealias ListenBlock = (serverStream: Stream, Int) -> ()
 
-@objc class StreamContext {
+class StreamContext {
     var readBlock: ReadBlock?
     var listenBlock: ListenBlock?
 }
@@ -114,51 +135,48 @@ private func alloc_buffer(_: UnsafeMutablePointer<uv_handle_t>, suggestedSize: I
 }
 
 private func free_buffer(buffer: UnsafePointer<uv_buf_t>) {
-    print("Freeing buffer")
     free(buffer.memory.base)
 }
 
+enum ReadResult {
+    case Chunk(NSData)
+    case EOF
+    case Error(UVError)
+}
+
 extension Stream {
-    
     var context: StreamContext {
+        if _context == nil {
+            _context = StreamContext()
+        }
+        return _context!
+    }
+    var _context: StreamContext? {
         get {
-            let data = stream.memory.data
-            if data == nil {
-                let result = StreamContext()
-                self.context = result
-                return result
-            }
-            return Unmanaged<StreamContext>.fromOpaque(COpaquePointer(data)).takeUnretainedValue()
+            return fromVoidPointer(stream.memory.data)
         }
         set {
-            // TODO dealloc this
-            guard stream.memory.data == nil else { fatalError("Cannot set stream twice") }
-            
-            stream.memory.data = UnsafeMutablePointer(Unmanaged.passRetained(newValue).toOpaque())
+            let _: StreamContext? = releaseVoidPointer(stream.memory.data)
+            stream.memory.data = retainedVoidPointer(newValue)
         }
     }
 
 
     func read(callback: ReadBlock) throws {
         context.readBlock = callback
-        uv_read_start(stream, alloc_buffer) {
-            serverStream, bytesRead, buf in
+        uv_read_start(stream, alloc_buffer) { serverStream, bytesRead, buf in
             defer { free_buffer(buf) }
             let stream = Stream(serverStream)
-            print("bytes read: \(bytesRead)")
-            
-            if (bytesRead == Int(UV_EOF.rawValue)) { // EOF
-                stream.context.readBlock?(stream: stream, data: nil)
-                stream.context.readBlock = nil
-                return
-            } else if (bytesRead < 0) { // Error
-                let err = UVError.Error(code: Int32(bytesRead))
-                fatalError(err.description)
+            let data: ReadResult
+            if (bytesRead == Int(UV_EOF.rawValue)) {
+                data = .EOF
+            } else if (bytesRead < 0) {
+                data = .Error(UVError.Error(code: Int32(bytesRead)))
+            } else {
+                data = .Chunk(NSData(bytes: buf.memory.base, length: bytesRead))
             }
-            let data = NSData(bytes: buf.memory.base, length: bytesRead)
             stream.context.readBlock?(stream: stream, data: data)
         }
-
     }
     
     func listen(numConnections: Int, theCallback: (Stream, Int) -> ()) throws -> () {
@@ -232,34 +250,30 @@ func TCPServer(handleRequest: (Stream, NSData, () -> ()) -> ()) throws {
 
     let addr = Address(host: "0.0.0.0", port: 8888)
     server.bind(addr)
-//    let on_new_connection: ListenBlock = { serverStream, status in
-//        if status < 0 { printErr(Int(status)) }
-//        let client = TCP()
-//        do {
-//            try serverStream.accept(client)
-//            let mutableData = NSMutableData()
-//            try client.read { stream, data in
-//                if let data = data {
-//                    mutableData.appendData(data)
-//                } else {
-//                    handleRequest(stream, mutableData) {
-//                        client.closeAndFree()
-//                    }
-//                }
-//            }
-//        } catch {
-//            print("Caught \(error)")
-//            client.closeAndFree()
-//        }
-//    }
-//
-//    try server.listen(numConnections, theCallback: on_new_connection)
-    try server.listen(numConnections, callback: { stream, status in
-        let server = Stream(stream)
+    let on_new_connection: ListenBlock = { serverStream, status in
+        if status < 0 { printErr(Int(status)) }
         let client = TCP()
-        try! server.accept(client)
-        client.closeAndFree()
-    })
+        do {
+            try serverStream.accept(client)
+            let mutableData = NSMutableData()
+            try client.read { stream, result in
+                if case let .Chunk(data) = result {
+                    mutableData.appendData(data)
+                } else if case .EOF = result {
+                    handleRequest(stream, mutableData) {
+                        client.closeAndFree()
+                    }
+                } else {
+                    client.closeAndFree()
+                }
+            }
+        } catch {
+            print("Caught \(error)")
+            client.closeAndFree()
+        }
+    }
+
+    try server.listen(numConnections, theCallback: on_new_connection)
     Loop.defaultLoop.run(UV_RUN_DEFAULT)
 }
 
@@ -274,6 +288,8 @@ func tcpServer() throws {
         }
     }
 }
+
+let result: Int = [1,2,3,4].reduce(0, combine: +)
 
 do {
 //    main()
