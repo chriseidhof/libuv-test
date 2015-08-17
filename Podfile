@@ -1,5 +1,5 @@
-platform :osx
+platform :osx, 10.9
 
 use_frameworks!
 
-pod 'libuv', :path => '/Users/chris/Development/Swift/libuv/libuv'
+pod 'libuv', :podspec => '/Users/chris/Development/Swift/libuv/libuv/libuv.podspec.json'

@@ -1,0 +1,14 @@
+PODS:
+  - libuv (1.4.1)
+
+DEPENDENCIES:
+  - libuv (from `/Users/chris/Development/Swift/libuv/libuv/libuv.podspec.json`)
+
+EXTERNAL SOURCES:
+  libuv:
+    :podspec: "/Users/chris/Development/Swift/libuv/libuv/libuv.podspec.json"
+
+SPEC CHECKSUMS:
+  libuv: 0d7d03aac2474e181994f9ebb95ebbb03ae177b5
+
+COCOAPODS: 0.38.2

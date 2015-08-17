@@ -24,9 +24,9 @@ typealias WriteRef = UnsafeMutablePointer<uv_write_t>
 typealias BufferRef = UnsafePointer<uv_buf_t>
 
 class Loop {
-    let loop: UnsafeMutablePointer<uv_loop_t>
+    let loop: LoopRef
     
-    init(loop: UnsafeMutablePointer<uv_loop_t> = UnsafeMutablePointer.alloc(1)) {
+    init(loop: LoopRef = UnsafeMutablePointer.alloc(1)) {
         self.loop = loop
         uv_loop_init(loop)
     }
@@ -94,7 +94,6 @@ class Stream {
     }
     
     func closeAndFree() {
-        _context = nil
         uv_close(UnsafeMutablePointer(stream)) { handle in
             free(handle)
         }
@@ -112,7 +111,7 @@ func retainedVoidPointer<A>(x: A?) -> UnsafeMutablePointer<Void> {
     return UnsafeMutablePointer(unmanaged.toOpaque())
 }
 
-func fromVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
+func unsafeFromVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
     guard x != nil else { return nil }
     return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeUnretainedValue().unbox
 }
@@ -153,7 +152,7 @@ extension Stream {
     }
     var _context: StreamContext? {
         get {
-            return fromVoidPointer(stream.memory.data)
+            return unsafeFromVoidPointer(stream.memory.data)
         }
         set {
             let _: StreamContext? = releaseVoidPointer(stream.memory.data)
@@ -192,23 +191,15 @@ extension Stream {
     
 }
 
-@objc class WriteCompletionHandler {
-    var completion: () -> ()
-    init(_ c: () -> ()) {
-        completion = c
-    }
-}
-
 class Write {
     var writeRef: WriteRef = WriteRef.alloc(1) // dealloced in the write callback
     
     func writeAndFree(stream: Stream, buffer: BufferRef, completion: () -> ()) {
         assert(writeRef != nil)
         
-        writeRef.memory.data =
-            UnsafeMutablePointer(Unmanaged.passRetained(WriteCompletionHandler(completion)).toOpaque())
+        writeRef.memory.data = retainedVoidPointer(completion)
         uv_write(writeRef, stream.stream, buffer, 1, { x, _ in
-            let completionHandler = Unmanaged<WriteCompletionHandler>.fromOpaque(COpaquePointer(x.memory.data)).takeRetainedValue().completion
+            let completionHandler: () -> () = releaseVoidPointer(x.memory.data)!
             free(x.memory.bufs)
             free(x)
             completionHandler()
@@ -259,17 +250,14 @@ extension Stream {
     }
 }
 
-extension Stream: SinkType {
-    typealias Element = NSData
-    
+extension Stream{
     func put(data: NSData) {
         writeData(data) {
             self.closeAndFree()
         }
-    }
-}
+    }}
 
-typealias RequestHandler = (data: NSData, sink: SinkOf<NSData>) -> ()
+typealias RequestHandler = (data: NSData, sink: NSData -> ()) -> ()
 
 func runTCPServer(handleRequest: RequestHandler) throws {
     let server = TCP()
@@ -281,7 +269,7 @@ func runTCPServer(handleRequest: RequestHandler) throws {
         do {
             try server.accept(client)
             try client.bufferedRead { data in
-                handleRequest(data: data, sink: SinkOf(client))
+                handleRequest(data: data, sink: client.put)
             }
         } catch {
             client.closeAndFree()
@@ -301,12 +289,10 @@ func run() throws {
         if let string = NSString(data: data, encoding: NSUTF8StringEncoding),
            let data = string.dataUsingEncoding(NSUTF8StringEncoding) {
             print(string)
-            sink.put(data)
+            sink(data)
         }
     }
 }
-
-let result: Int = [1,2,3,4].reduce(0, combine: +)
 
 do {
     try run()
