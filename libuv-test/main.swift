@@ -17,11 +17,12 @@ func printErr(errorCode: Int) {
     print("Error \(errorCode): \(str)")
 }
 
-typealias LoopRef = UnsafeMutablePointer<uv_loop_t>
 typealias HandleRef = UnsafeMutablePointer<uv_handle_t>
-typealias StreamRef = UnsafeMutablePointer<uv_stream_t>
 typealias WriteRef = UnsafeMutablePointer<uv_write_t>
 typealias BufferRef = UnsafePointer<uv_buf_t>
+
+// <<LibUVLoop>>
+typealias LoopRef = UnsafeMutablePointer<uv_loop_t>
 
 class Loop {
     let loop: LoopRef
@@ -42,6 +43,7 @@ class Loop {
     
     static var defaultLoop = Loop(loop: uv_default_loop())
 }
+// <</LibUVLoop>>
 
 
 enum UVError: ErrorType {
@@ -76,6 +78,9 @@ class Address {
     }
 }
 
+// <<LibUVStream>>
+typealias StreamRef = UnsafeMutablePointer<uv_stream_t>
+
 class Stream {
     var stream: StreamRef
     
@@ -83,23 +88,28 @@ class Stream {
         self.stream = stream
     }
 }
+// <</LibUVStream>>
 
 extension Stream {
-    func accept(client: Stream) throws -> () {
-        let result = uv_accept(stream, client.stream)
-        if result < 0 { throw UVError.Error(code: result) }
-    }
-    
+    // <<AcceptAndListen>>
     func listen(backlog numConnections: Int, callback: uv_connection_cb) throws -> () {
         let result = uv_listen(stream, Int32(numConnections), callback)
         if result < 0 { throw UVError.Error(code: result) }
     }
+
+    func accept(client: Stream) throws -> () {
+        let result = uv_accept(stream, client.stream)
+        if result < 0 { throw UVError.Error(code: result) }
+    }
+    // <</AcceptAndListen>>
     
+    // <<CloseAndFree>>
     func closeAndFree() {
         uv_close(UnsafeMutablePointer(stream)) { handle in
             free(handle)
         }
     }
+    // <</CloseAndFree>>
 }
 
 final class Box<A> {
@@ -107,22 +117,28 @@ final class Box<A> {
     init(_ value: A) { unbox = value }
 }
 
+// <<RetainedVoidPointer>>
 func retainedVoidPointer<A>(x: A?) -> UnsafeMutablePointer<Void> {
     guard let value = x else { return UnsafeMutablePointer() }
     let unmanaged = Unmanaged.passRetained(Box(value))
     return UnsafeMutablePointer(unmanaged.toOpaque())
 }
 
-func unsafeFromVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
-    guard x != nil else { return nil }
-    return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeUnretainedValue().unbox
-}
-
 func releaseVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
     guard x != nil else { return nil }
     return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeRetainedValue().unbox
 }
+// <</RetainedVoidPointer>>
 
+// <<UnsafeFromVoidPointer>>
+func unsafeFromVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
+    guard x != nil else { return nil }
+    return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeUnretainedValue().unbox
+}
+// <</UnsafeFromVoidPointer>>
+
+
+// <<StreamContext>>
 typealias ReadBlock = ReadResult -> ()
 typealias ListenBlock = (status: Int) -> ()
 
@@ -130,6 +146,7 @@ class StreamContext {
     var readBlock: ReadBlock?
     var listenBlock: ListenBlock?
 }
+// <</StreamContext>>
 
 private func alloc_buffer(_: UnsafeMutablePointer<uv_handle_t>, suggestedSize: Int, buffer: UnsafeMutablePointer<uv_buf_t>) -> () {
     buffer.memory = uv_buf_init(UnsafeMutablePointer.alloc(suggestedSize), UInt32(suggestedSize))
@@ -139,20 +156,25 @@ private func free_buffer(buffer: UnsafePointer<uv_buf_t>) {
     free(buffer.memory.base)
 }
 
+// <<ReadResult>>
 enum ReadResult {
     case Chunk(NSData)
     case EOF
     case Error(UVError)
 }
+// <</ReadResult>>
 
 extension Stream {
+    // <<StreamContextAccessor>>
     var context: StreamContext {
         if _context == nil {
             _context = StreamContext()
         }
         return _context!
     }
+    // <</StreamContextAccessor>>
 
+    // <<StreamContextPrivateAccessor>>
     var _context: StreamContext? {
         get {
             return unsafeFromVoidPointer(stream.memory.data)
@@ -162,7 +184,9 @@ extension Stream {
             stream.memory.data = retainedVoidPointer(newValue)
         }
     }
+    // <</StreamContextPrivateAccessor>>
 
+    // <<StreamRead>>
     func read(callback: ReadBlock) throws {
         context.readBlock = callback
         uv_read_start(stream, alloc_buffer) { serverStream, bytesRead, buf in
@@ -179,7 +203,9 @@ extension Stream {
             stream.context.readBlock?(data)
         }
     }
+    // <</StreamRead>>
     
+    // <<TCPListenBlock>>
     func listen(numConnections: Int, theCallback: ListenBlock) throws -> () {
         context.listenBlock = theCallback
         try listen(backlog: numConnections, callback: { serverStream, status in
@@ -187,6 +213,7 @@ extension Stream {
             stream.context.listenBlock?(status: Int(status))
         })
     }
+    // <</TCPListenBlock>>
 
     func write(completion: () -> ())(buffer: BufferRef) {
         Write().writeAndFree(self, buffer: buffer, completion: completion)
@@ -210,6 +237,7 @@ class Write {
     }    
 }
 
+// <<TCPClass>>
 class TCP: Stream {
     let socket = UnsafeMutablePointer<uv_tcp_t>.alloc(1)
 
@@ -217,10 +245,15 @@ class TCP: Stream {
         super.init(UnsafeMutablePointer(self.socket))
         uv_tcp_init(loop.loop, socket)
     }
+}
+// <</TCPClass>>
 
+extension TCP {
+    // <<TCPBind>>
     func bind(address: Address) {
         uv_tcp_bind(socket, address.address, 0)
     }
+    // <</TCPBind>>
 }
 
 extension NSData {
@@ -239,6 +272,7 @@ extension Stream {
 }
 
 extension Stream {
+    // <<BufferedRead>>
     func bufferedRead(callback: NSData -> ()) throws -> () {
         let mutableData = NSMutableData()
         try read { [unowned self] result in
@@ -251,6 +285,7 @@ extension Stream {
             }
         }
     }
+    // <</BufferedRead>>
 }
 
 extension Stream {
@@ -260,8 +295,11 @@ extension Stream {
         }
     }}
 
+// <<RequestHandler>>
 typealias RequestHandler = (data: NSData, sink: NSData -> ()) -> ()
+// <</RequestHandler>>
 
+// <<RunTCPServer>>
 func runTCPServer(handleRequest: RequestHandler) throws {
     let server = TCP()
     let addr = Address(host: "0.0.0.0", port: 8888)
@@ -280,6 +318,7 @@ func runTCPServer(handleRequest: RequestHandler) throws {
     }
     Loop.defaultLoop.run(UV_RUN_DEFAULT)
 }
+// <</RunTCPServer>>
 
 extension String {
     func reverse() -> String {
@@ -288,6 +327,7 @@ extension String {
 }
 
 func run() throws {
+    // <<RunTCPServerExample>>
     try runTCPServer() { data, sink in
         if let string = String.fromCString(UnsafePointer(data.bytes)),
            let data = string.dataUsingEncoding(NSUTF8StringEncoding) {
@@ -295,6 +335,7 @@ func run() throws {
             sink(data)
         }
     }
+    // <</RunTCPServerExample>>
 }
 
 do {
