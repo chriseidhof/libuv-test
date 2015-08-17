@@ -64,6 +64,6 @@ func context2() {
         })
         Loop.defaultLoop.run(UV_RUN_DEFAULT)
     }
-    // <<TCPExampleClose>>
+    // <</TCPExampleClose>>
 
 }
