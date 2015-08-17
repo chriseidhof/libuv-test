@@ -26,7 +26,7 @@ typealias BufferRef = UnsafePointer<uv_buf_t>
 class Loop {
     let loop: LoopRef
     
-    init(loop: LoopRef = UnsafeMutablePointer.alloc(1)) {
+    init(loop: LoopRef = LoopRef.alloc(1)) {
         self.loop = loop
         uv_loop_init(loop)
     }
@@ -82,7 +82,9 @@ class Stream {
     init(_ stream: StreamRef) {
         self.stream = stream
     }
+}
 
+extension Stream {
     func accept(client: Stream) throws -> () {
         let result = uv_accept(stream, client.stream)
         if result < 0 { throw UVError.Error(code: result) }
@@ -150,6 +152,7 @@ extension Stream {
         }
         return _context!
     }
+
     var _context: StreamContext? {
         get {
             return unsafeFromVoidPointer(stream.memory.data)
@@ -250,7 +253,7 @@ extension Stream {
     }
 }
 
-extension Stream{
+extension Stream {
     func put(data: NSData) {
         writeData(data) {
             self.closeAndFree()
@@ -286,7 +289,7 @@ extension String {
 
 func run() throws {
     try runTCPServer() { data, sink in
-        if let string = NSString(data: data, encoding: NSUTF8StringEncoding),
+        if let string = String.fromCString(UnsafePointer(data.bytes)),
            let data = string.dataUsingEncoding(NSUTF8StringEncoding) {
             print(string)
             sink(data)
