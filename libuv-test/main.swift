@@ -26,21 +26,21 @@ typealias LoopRef = UnsafeMutablePointer<uv_loop_t>
 
 class Loop {
     let loop: LoopRef
-    
+
     init(loop: LoopRef = LoopRef.alloc(1)) {
         self.loop = loop
         uv_loop_init(loop)
     }
-    
+
     func run(mode: uv_run_mode) {
         uv_run(loop, mode)
     }
-    
+
     deinit {
         uv_loop_close(loop)
         loop.dealloc(1)
     }
-    
+
     static var defaultLoop = Loop(loop: uv_default_loop())
 }
 // <</LibUVLoop>>
@@ -64,15 +64,15 @@ extension UVError : CustomStringConvertible {
 
 class Address {
     var addr = UnsafeMutablePointer<sockaddr_in>.alloc(1)
-    
+
     var address: UnsafePointer<sockaddr> {
         return UnsafePointer(addr)
     }
-    
+
     init(host: String, port: Int) {
         uv_ip4_addr(host, Int32(port), addr)
     }
-    
+
     deinit {
         addr.dealloc(1)
     }
@@ -83,16 +83,18 @@ typealias StreamRef = UnsafeMutablePointer<uv_stream_t>
 
 class Stream {
     var stream: StreamRef
-    
+
     init(_ stream: StreamRef) {
         self.stream = stream
     }
 }
 // <</LibUVStream>>
 
+// <<AcceptAndListen>>
 extension Stream {
-    // <<AcceptAndListen>>
-    func listen(backlog numConnections: Int, callback: uv_connection_cb) throws -> () {
+    func listen(backlog numConnections: Int, callback: uv_connection_cb)
+        throws -> ()
+    {
         let result = uv_listen(stream, Int32(numConnections), callback)
         if result < 0 { throw UVError.Error(code: result) }
     }
@@ -101,16 +103,18 @@ extension Stream {
         let result = uv_accept(stream, client.stream)
         if result < 0 { throw UVError.Error(code: result) }
     }
-    // <</AcceptAndListen>>
-    
-    // <<CloseAndFree>>
+}
+// <</AcceptAndListen>>
+
+// <<CloseAndFree>>
+extension Stream {
     func closeAndFree() {
         uv_close(UnsafeMutablePointer(stream)) { handle in
             free(handle)
         }
     }
-    // <</CloseAndFree>>
 }
+// <</CloseAndFree>>
 
 final class Box<A> {
     let unbox: A
@@ -204,7 +208,7 @@ extension Stream {
         }
     }
     // <</StreamRead>>
-    
+
     // <<TCPListenBlock>>
     func listen(numConnections: Int, theCallback: ListenBlock) throws -> () {
         context.listenBlock = theCallback
@@ -218,15 +222,15 @@ extension Stream {
     func write(completion: () -> ())(buffer: BufferRef) {
         Write().writeAndFree(self, buffer: buffer, completion: completion)
     }
-    
+
 }
 
 class Write {
     var writeRef: WriteRef = WriteRef.alloc(1) // dealloced in the write callback
-    
+
     func writeAndFree(stream: Stream, buffer: BufferRef, completion: () -> ()) {
         assert(writeRef != nil)
-        
+
         writeRef.memory.data = retainedVoidPointer(completion)
         uv_write(writeRef, stream.stream, buffer, 1, { x, _ in
             let completionHandler: () -> () = releaseVoidPointer(x.memory.data)!
@@ -234,7 +238,7 @@ class Write {
             free(x)
             completionHandler()
         })
-    }    
+    }
 }
 
 // <<TCPClass>>
@@ -330,7 +334,8 @@ func run() throws {
     // <<RunTCPServerExample>>
     try runTCPServer() { data, sink in
         if let string = String.fromCString(UnsafePointer(data.bytes)),
-           let data = string.dataUsingEncoding(NSUTF8StringEncoding) {
+            let data = string.dataUsingEncoding(NSUTF8StringEncoding)
+        {
             print(string)
             sink(data)
         }
