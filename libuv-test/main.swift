@@ -164,6 +164,20 @@ enum ReadResult {
 }
 // <</ReadResult>>
 
+// <<ReadResultInitializer>>
+extension ReadResult {
+    init(bytesRead: Int, buffer: UnsafePointer<uv_buf_t>) {
+        if (bytesRead == Int(UV_EOF.rawValue)) {
+          self = .EOF
+        } else if (bytesRead < 0) {
+          self = .Error(UVError.Error(code: Int32(bytesRead)))
+        } else {
+          self = .Chunk(NSData(bytes: buffer.memory.base, length: bytesRead))
+        }
+    }
+}
+// <</ReadResultInitializer>>
+
 extension Stream {
     // <<StreamContextAccessor>>
     var context: StreamContext {
@@ -192,14 +206,7 @@ extension Stream {
         uv_read_start(stream, alloc_buffer) { serverStream, bytesRead, buf in
             defer { free_buffer(buf) }
             let stream = Stream(serverStream)
-            let data: ReadResult
-            if (bytesRead == Int(UV_EOF.rawValue)) {
-                data = .EOF
-            } else if (bytesRead < 0) {
-                data = .Error(UVError.Error(code: Int32(bytesRead)))
-            } else {
-                data = .Chunk(NSData(bytes: buf.memory.base, length: bytesRead))
-            }
+            let data = ReadResult(bytesRead: bytesRead, buffer: buf)
             stream.context.readBlock?(data)
         }
     }
@@ -276,11 +283,12 @@ extension Stream {
     func bufferedRead(callback: NSData -> ()) throws -> () {
         let mutableData = NSMutableData()
         try read { [unowned self] result in
-            if case let .Chunk(data) = result {
+            switch result {
+            case .Chunk(let data):
                 mutableData.appendData(data)
-            } else if case .EOF = result {
+            case .EOF:
                 callback(mutableData)
-            } else {
+            case .Error(_):
                 self.closeAndFree()
             }
         }

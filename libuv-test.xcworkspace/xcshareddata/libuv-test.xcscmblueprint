@@ -1,0 +1,30 @@
+{
+  "DVTSourceControlWorkspaceBlueprintPrimaryRemoteRepositoryKey" : "13BEA0529D101E0DE07FED6F674043278E44C5E5",
+  "DVTSourceControlWorkspaceBlueprintWorkingCopyRepositoryLocationsKey" : {
+
+  },
+  "DVTSourceControlWorkspaceBlueprintWorkingCopyStatesKey" : {
+    "13BEA0529D101E0DE07FED6F674043278E44C5E5" : 0,
+    "A35C1B7173F323620855E324584BD4D0F11EE0CA" : 0
+  },
+  "DVTSourceControlWorkspaceBlueprintIdentifierKey" : "BD94825C-20AF-4D71-BC81-F43E02C2B5B0",
+  "DVTSourceControlWorkspaceBlueprintWorkingCopyPathsKey" : {
+    "13BEA0529D101E0DE07FED6F674043278E44C5E5" : "libuv-test\/",
+    "A35C1B7173F323620855E324584BD4D0F11EE0CA" : ""
+  },
+  "DVTSourceControlWorkspaceBlueprintNameKey" : "libuv-test",
+  "DVTSourceControlWorkspaceBlueprintVersion" : 204,
+  "DVTSourceControlWorkspaceBlueprintRelativePathToProjectKey" : "libuv-test.xcworkspace",
+  "DVTSourceControlWorkspaceBlueprintRemoteRepositoriesKey" : [
+    {
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryURLKey" : "https:\/\/github.com\/chriseidhof\/libuv-test.git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositorySystemKey" : "com.apple.dt.Xcode.sourcecontrol.Git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryIdentifierKey" : "13BEA0529D101E0DE07FED6F674043278E44C5E5"
+    },
+    {
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryURLKey" : "github.com:objcio\/advanced-swift-book.git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositorySystemKey" : "com.apple.dt.Xcode.sourcecontrol.Git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryIdentifierKey" : "A35C1B7173F323620855E324584BD4D0F11EE0CA"
+    }
+  ]
+}
