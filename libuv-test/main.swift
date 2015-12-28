@@ -118,12 +118,14 @@ final class Box<A> {
 }
 
 // <<RetainedVoidPointer>>
+// Retains the value A if it's non-nil
 func retainedVoidPointer<A>(x: A?) -> UnsafeMutablePointer<Void> {
     guard let value = x else { return UnsafeMutablePointer() }
     let unmanaged = Unmanaged.passRetained(Box(value))
     return UnsafeMutablePointer(unmanaged.toOpaque())
 }
 
+// Releases the value inside the pointer, and returns it
 func releaseVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
     guard x != nil else { return nil }
     return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeRetainedValue().unbox
@@ -131,6 +133,7 @@ func releaseVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
 // <</RetainedVoidPointer>>
 
 // <<UnsafeFromVoidPointer>>
+// Returns the value inside the pointer without releasing
 func unsafeFromVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
     guard x != nil else { return nil }
     return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeUnretainedValue().unbox
