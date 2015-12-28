@@ -167,10 +167,10 @@ enum ReadResult {
 // <<ReadResultInitializer>>
 extension ReadResult {
     init(bytesRead: Int, buffer: UnsafePointer<uv_buf_t>) {
-        if (bytesRead == Int(UV_EOF.rawValue)) {
+        if bytesRead == Int(UV_EOF.rawValue) {
           self = .EOF
-        } else if (bytesRead < 0) {
-          self = .Error(UVError.Error(code: Int32(bytesRead)))
+        } else if bytesRead < 0 {
+          self = .Error(.Error(code: Int32(bytesRead)))
         } else {
           self = .Chunk(NSData(bytes: buffer.memory.base, length: bytesRead))
         }
