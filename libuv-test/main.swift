@@ -222,10 +222,10 @@ extension Stream {
     // <<TCPListenBlock>>
     func listen(numConnections: Int, theCallback: ListenBlock) throws -> () {
         context.listenBlock = theCallback
-        try listen(backlog: numConnections, callback: { serverStream, status in
+        try listen(backlog: numConnections) { serverStream, status in
             let stream = Stream(serverStream)
             stream.context.listenBlock?(status: Int(status))
-        })
+        }
     }
     // <</TCPListenBlock>>
 
@@ -242,12 +242,12 @@ class Write {
         assert(writeRef != nil)
 
         writeRef.memory.data = retainedVoidPointer(completion)
-        uv_write(writeRef, stream.stream, buffer, 1, { x, _ in
+        uv_write(writeRef, stream.stream, buffer, 1) { x, _ in
             let completionHandler: () -> () = releaseVoidPointer(x.memory.data)!
             free(x.memory.bufs)
             free(x)
             completionHandler()
-        })
+        }
     }
 }
 
