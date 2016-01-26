@@ -122,7 +122,7 @@ final class Box<A> {
 // <<RetainedVoidPointer>>
 // Retains the value A if it's non-nil
 func retainedVoidPointer<A>(x: A?) -> UnsafeMutablePointer<Void> {
-    guard let value = x else { return UnsafeMutablePointer() }
+    guard let value = x else { return nil }
     let unmanaged = Unmanaged.passRetained(Box(value))
     return UnsafeMutablePointer(unmanaged.toOpaque())
 }
@@ -229,8 +229,10 @@ extension Stream {
     }
     // <</TCPListenBlock>>
 
-    func write(completion: () -> ())(buffer: BufferRef) {
-        Write().writeAndFree(self, buffer: buffer, completion: completion)
+    func write(completion: () -> ()) -> BufferRef -> () {
+        return { buffer in
+            Write().writeAndFree(self, buffer: buffer, completion: completion)
+        }
     }
 
 }
