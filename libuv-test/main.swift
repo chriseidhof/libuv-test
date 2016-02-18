@@ -96,14 +96,12 @@ extension Stream {
         let result = uv_listen(stream, Int32(numConnections), callback)
         if result < 0 { throw UVError.Error(code: result) }
     }
-    // <</AcceptAndListen>>
 
-    // <<AcceptAndListen2>>
     func accept(client: Stream) throws -> () {
         let result = uv_accept(stream, client.stream)
         if result < 0 { throw UVError.Error(code: result) }
     }
-    // <</AcceptAndListen2>>
+    // <</AcceptAndListen>>
 
     // <<CloseAndFree>>
     func closeAndFree() {
@@ -127,11 +125,10 @@ func retainedVoidPointer<A>(x: A?) -> UnsafeMutablePointer<Void> {
     return UnsafeMutablePointer(unmanaged.toOpaque())
 }
 
-// Releases the value inside the pointer, and returns it
+// Releases the value inside the pointer and returns it
 func releaseVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
     guard x != nil else { return nil }
-    return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x))
-        .takeRetainedValue().unbox
+    return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeRetainedValue().unbox
 }
 // <</RetainedVoidPointer>>
 
@@ -139,8 +136,7 @@ func releaseVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
 // Returns the value inside the pointer without releasing
 func unsafeFromVoidPointer<A>(x: UnsafeMutablePointer<Void>) -> A? {
     guard x != nil else { return nil }
-    return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x))
-        .takeUnretainedValue().unbox
+    return Unmanaged<Box<A>>.fromOpaque(COpaquePointer(x)).takeUnretainedValue().unbox
 }
 // <</UnsafeFromVoidPointer>>
 
